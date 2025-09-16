@@ -38,7 +38,23 @@ class Logger {
     
     if (data) {
       if (typeof data === 'object') {
-        formattedMessage += ` ${JSON.stringify(data, null, 2)}`;
+        try {
+          // Handle circular references by using a replacer function
+          const seen = new WeakSet();
+          const jsonString = JSON.stringify(data, (key, value) => {
+            if (typeof value === 'object' && value !== null) {
+              if (seen.has(value)) {
+                return '[Circular Reference]';
+              }
+              seen.add(value);
+            }
+            return value;
+          }, 2);
+          formattedMessage += ` ${jsonString}`;
+        } catch (error) {
+          // Fallback if JSON.stringify still fails
+          formattedMessage += ` [Object - JSON stringify failed: ${error.message}]`;
+        }
       } else {
         formattedMessage += ` ${data}`;
       }

@@ -21,16 +21,18 @@ const io = socketIo(server, {
     methods: ["GET", "POST"],
     credentials: true
   },
-  pingTimeout: 60000,
-  pingInterval: 25000,
+  pingTimeout: 45000,
+  pingInterval: 20000,
   upgradeTimeout: 30000,
-  allowUpgrades: true,
-  transports: ['polling', 'websocket'],
+  allowUpgrades: false,
+  transports: ['polling'],
   maxHttpBufferSize: 1e8,
-  connectTimeout: 45000,
+  connectTimeout: 15000,
   allowEIO3: true,
   serveClient: true,
-  cookie: false
+  cookie: false,
+  destroyUpgrade: false,
+  destroyUpgradeTimeout: 1000
 });
 
 const PORT = process.env.PORT || 4201;
@@ -63,7 +65,7 @@ io.on('connection', (socket) => {
   logger.info(`Client connected: ${socket.id} from ${socket.handshake.address}`);
 
   // Set socket timeout and keepalive
-  socket.timeout(60000);
+  socket.timeout(15000);
   
   // Initialize client with current data - wrap in try/catch
   try {

@@ -21,7 +21,9 @@ class PapyrusLiteApp {
       autoConnect: true,
       forceBase64: false,
       // Additional resilience settings
-      closeOnBeforeunload: false
+      closeOnBeforeunload: false,
+      // Force connection state reset on each reconnection
+      forceNewConnection: isProduction
     });
     this.currentModal = null;
     this.commandHistory = [];

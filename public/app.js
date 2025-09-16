@@ -1,12 +1,21 @@
 class PapyrusLiteApp {
   constructor() {
-    this.socket = io();
+    this.socket = io({
+      timeout: 60000,
+      reconnection: true,
+      reconnectionDelay: 1000,
+      reconnectionAttempts: 5,
+      maxReconnectionAttempts: 5,
+      transports: ['websocket', 'polling']
+    });
     this.currentModal = null;
     this.commandHistory = [];
     this.historyIndex = -1;
     this.autocompleteIndex = -1;
     this.currentData = {};
     this.hasInitialized = false;
+    this.aiTimeout = null;
+    this.linkTimeout = null;
     
     this.initializeElements();
     this.setupEventListeners();
@@ -79,7 +88,17 @@ class PapyrusLiteApp {
 
     this.socket.on('disconnect', () => {
       console.log('Disconnected from server');
-      // Remove disconnection message from terminal
+      // Clear any pending timeouts and hide loading
+      if (this.aiTimeout) {
+        clearTimeout(this.aiTimeout);
+        this.aiTimeout = null;
+      }
+      if (this.linkTimeout) {
+        clearTimeout(this.linkTimeout);
+        this.linkTimeout = null;
+      }
+      this.hideLoading();
+      this.showError('Connection lost. Please refresh the page.');
     });
 
     this.socket.on('init', (data) => {
@@ -94,6 +113,21 @@ class PapyrusLiteApp {
 
     this.socket.on('commandResult', (result) => {
       this.handleCommandResult(result);
+    });
+
+    this.socket.on('connect_error', (error) => {
+      console.error('Connection error:', error);
+      // Clear any pending timeouts and hide loading
+      if (this.aiTimeout) {
+        clearTimeout(this.aiTimeout);
+        this.aiTimeout = null;
+      }
+      if (this.linkTimeout) {
+        clearTimeout(this.linkTimeout);
+        this.linkTimeout = null;
+      }
+      this.hideLoading();
+      this.showError('Failed to connect to server. Please try again.');
     });
 
     this.socket.on('error', (error) => {
@@ -127,6 +161,12 @@ class PapyrusLiteApp {
     });
 
     this.socket.on('aiError', (error) => {
+      // Clear timeout if error received
+      if (this.aiTimeout) {
+        clearTimeout(this.aiTimeout);
+        this.aiTimeout = null;
+      }
+      
       this.showError(`AI Error: ${error.message}`);
       this.hideLoading();
     });
@@ -548,6 +588,13 @@ class PapyrusLiteApp {
     
     // Automatically render the content on load
     this.showLoading();
+    
+    // Set a timeout for link processing
+    this.linkTimeout = setTimeout(() => {
+      this.hideLoading();
+      this.showError('Link processing timed out. Please try again.');
+    }, 30000); // 30 second timeout for link processing
+    
     this.socket.emit('processLinks', { content: data.content });
   }
 
@@ -729,12 +776,25 @@ class PapyrusLiteApp {
     } else {
       // Process links and render
       this.showLoading();
+      
+      // Set a timeout for link processing
+      this.linkTimeout = setTimeout(() => {
+        this.hideLoading();
+        this.showError('Link processing timed out. Please try again.');
+      }, 30000); // 30 second timeout for link processing
+      
       this.socket.emit('processLinks', { content: this.currentPreviewContent });
       button.textContent = 'Raw';
     }
   }
 
   updatePreviewContent(processedContent) {
+    // Clear timeout if response received
+    if (this.linkTimeout) {
+      clearTimeout(this.linkTimeout);
+      this.linkTimeout = null;
+    }
+    
     this.hideLoading();
     const content = document.getElementById('preview-content');
     if (content) {
@@ -799,6 +859,12 @@ class PapyrusLiteApp {
     this.addChatMessage('user', content);
     this.showLoading();
     
+    // Set a timeout to hide loading if no response received
+    this.aiTimeout = setTimeout(() => {
+      this.hideLoading();
+      this.showError('AI request timed out. Please try again.');
+    }, 60000); // 60 second timeout
+    
     this.socket.emit('sendToAI', {
       content: content,
       conversationId: this.currentConversationId,
@@ -821,6 +887,13 @@ class PapyrusLiteApp {
     ).join('\n\n') + `\n\nHuman: ${message}`;
     
     this.showLoading();
+    
+    // Set a timeout to hide loading if no response received
+    this.aiTimeout = setTimeout(() => {
+      this.hideLoading();
+      this.showError('AI request timed out. Please try again.');
+    }, 60000); // 60 second timeout
+    
     this.socket.emit('sendToAI', {
       content: conversationContext,
       conversationId: this.currentConversationId,
@@ -857,6 +930,12 @@ class PapyrusLiteApp {
   }
 
   handleAIResponse(data) {
+    // Clear timeout if response received
+    if (this.aiTimeout) {
+      clearTimeout(this.aiTimeout);
+      this.aiTimeout = null;
+    }
+    
     this.hideLoading();
     this.addChatMessage('ai', data.response);
   }

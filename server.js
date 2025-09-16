@@ -29,7 +29,7 @@ const io = socketIo(server, {
   maxHttpBufferSize: 1e8,
   connectTimeout: 45000,
   allowEIO3: true,
-  serveClient: false,
+  serveClient: true,
   cookie: false
 });
 

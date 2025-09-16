@@ -19,7 +19,14 @@ const io = socketIo(server, {
   cors: {
     origin: "*",
     methods: ["GET", "POST"]
-  }
+  },
+  pingTimeout: 120000,
+  pingInterval: 30000,
+  upgradeTimeout: 60000,
+  allowUpgrades: true,
+  transports: ['websocket', 'polling'],
+  maxHttpBufferSize: 1e8,
+  connectTimeout: 60000
 });
 
 const PORT = process.env.PORT || 4201;
@@ -48,6 +55,19 @@ io.on('connection', (socket) => {
     aiModel: dataManager.getAIModel(),
     rootPath: dataManager.getRootPath(),
     history: dataManager.getHistory()
+  });
+
+  // Add connection debugging
+  socket.on('disconnect', (reason) => {
+    logger.info(`Client disconnected: ${socket.id}, reason: ${reason}`);
+  });
+
+  socket.on('connect_error', (error) => {
+    logger.error(`Connection error for ${socket.id}:`, error);
+  });
+
+  socket.on('error', (error) => {
+    logger.error(`Socket error for ${socket.id}:`, error);
   });
 
   // Command handlers
@@ -180,18 +200,21 @@ io.on('connection', (socket) => {
     }
   });
 
-  socket.on('disconnect', () => {
-    logger.info(`Client disconnected: ${socket.id}`);
-  });
 });
 
 // Command handler function
 async function handleCommand(command, args, socket) {
   const history = dataManager.getHistory();
   
-  // Add command to history
+  // Add command to history (async to prevent blocking)
   history.push({ command, args, timestamp: new Date().toISOString() });
-  dataManager.saveHistory(history);
+  setImmediate(() => {
+    try {
+      dataManager.saveHistory(history);
+    } catch (error) {
+      logger.error('Failed to save history:', error);
+    }
+  });
 
   switch (command) {
     case 'restart':
@@ -287,9 +310,14 @@ server.listen(PORT, () => {
   
   // Initialize file watcher if root path is set
   const rootPath = dataManager.getRootPath();
-  if (rootPath && fs.existsSync(rootPath)) {
-    fileWatcher.updateRootPath(rootPath);
-    logger.info(`File watcher initialized for: ${rootPath}`);
+  if (rootPath) {
+    const resolvedPath = path.isAbsolute(rootPath) ? rootPath : path.join(__dirname, rootPath);
+    if (fs.existsSync(resolvedPath)) {
+      fileWatcher.updateRootPath(resolvedPath);
+      logger.info(`File watcher initialized for: ${rootPath} (resolved: ${resolvedPath})`);
+    } else {
+      logger.warn(`Root path does not exist: ${rootPath} (resolved: ${resolvedPath})`);
+    }
   }
 });
 

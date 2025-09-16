@@ -47,6 +47,11 @@ class LinkProcessor {
       return await this.processLinks(substitutes[linkContent], depth);
     }
 
+    // Check if it's a folder wildcard pattern (folder/*)
+    if (linkContent.endsWith('/*')) {
+      return await this.resolveFolderWildcard(linkContent, depth);
+    }
+
     // Then check if it's a file path
     const rootPath = this.dataManager.getRootPath();
     if (!rootPath) {
@@ -87,6 +92,80 @@ class LinkProcessor {
       return await this.processLinks(fileContent, depth);
     } catch (error) {
       throw new Error(`Failed to read file: ${linkContent} - ${error.message}`);
+    }
+  }
+
+  async resolveFolderWildcard(linkContent, depth) {
+    const folderPath = linkContent.slice(0, -2); // Remove the /*
+    const rootPath = this.dataManager.getRootPath();
+    
+    if (!rootPath) {
+      throw new Error('Root path not set. Use /root command to set the root directory.');
+    }
+
+    let fullFolderPath;
+    if (path.isAbsolute(folderPath)) {
+      fullFolderPath = folderPath;
+    } else {
+      fullFolderPath = path.resolve(rootPath, folderPath);
+    }
+
+    // Validate folder path is within root directory (security check)
+    const normalizedRoot = path.resolve(rootPath);
+    const normalizedFolder = path.resolve(fullFolderPath);
+    if (!normalizedFolder.startsWith(normalizedRoot)) {
+      throw new Error(`Folder path outside root directory: ${folderPath}`);
+    }
+
+    // Check if folder exists
+    if (!await fs.pathExists(fullFolderPath)) {
+      throw new Error(`Folder not found: ${folderPath}`);
+    }
+
+    const stat = await fs.stat(fullFolderPath);
+    if (!stat.isDirectory()) {
+      throw new Error(`Path is not a directory: ${folderPath}`);
+    }
+
+    // Read all files in the folder
+    try {
+      const files = await fs.readdir(fullFolderPath);
+      const supportedFiles = files.filter(file => {
+        const ext = path.extname(file).toLowerCase();
+        return ['.md', '.txt'].includes(ext);
+      }).sort(); // Sort for consistent ordering
+
+      if (supportedFiles.length === 0) {
+        this.logger.warn(`No supported files (.md, .txt) found in folder: ${folderPath}`);
+        return `[No supported files found in ${folderPath}]`;
+      }
+
+      this.logger.debug(`Found ${supportedFiles.length} files in folder: ${folderPath}`);
+
+      // Read and combine all file contents
+      const combinedContent = [];
+      for (const file of supportedFiles) {
+        const filePath = path.join(fullFolderPath, file);
+        try {
+          const fileContent = await fs.readFile(filePath, 'utf8');
+          
+          // Add a header for each file
+          combinedContent.push(`\n--- ${file} ---\n`);
+          combinedContent.push(fileContent);
+          
+          this.logger.debug(`Read file from folder: ${file} (${fileContent.length} characters)`);
+        } catch (error) {
+          this.logger.error(`Failed to read file ${file} from folder ${folderPath}:`, error);
+          combinedContent.push(`\n--- ${file} ---\n[ERROR: Failed to read file - ${error.message}]\n`);
+        }
+      }
+
+      const result = combinedContent.join('');
+      
+      // Recursively process any links in the combined content
+      return await this.processLinks(result, depth);
+    } catch (error) {
+      throw new Error(`Failed to read folder: ${folderPath} - ${error.message}`);
     }
   }
 

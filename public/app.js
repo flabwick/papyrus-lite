@@ -6,6 +6,7 @@ class PapyrusLiteApp {
     this.historyIndex = -1;
     this.autocompleteIndex = -1;
     this.currentData = {};
+    this.hasInitialized = false;
     
     this.initializeElements();
     this.setupEventListeners();
@@ -38,7 +39,10 @@ class PapyrusLiteApp {
     // Command input
     this.elements.commandInput.addEventListener('keydown', (e) => this.handleKeyDown(e));
     this.elements.commandInput.addEventListener('input', (e) => this.handleInput(e));
-    this.elements.commandInput.addEventListener('blur', () => this.hideAutocomplete());
+    this.elements.commandInput.addEventListener('blur', (e) => {
+      // Delay hiding autocomplete to allow clicks to register
+      setTimeout(() => this.hideAutocomplete(), 150);
+    });
 
     // Modal
     this.elements.modalBack.addEventListener('click', () => this.hideModal());
@@ -70,18 +74,22 @@ class PapyrusLiteApp {
   setupSocketListeners() {
     this.socket.on('connect', () => {
       console.log('Connected to server');
-      this.addOutput('Connected to Papyrus Lite', 'system');
+      // Remove connection message from terminal
     });
 
     this.socket.on('disconnect', () => {
       console.log('Disconnected from server');
-      this.addOutput('Disconnected from server', 'error');
+      // Remove disconnection message from terminal
     });
 
     this.socket.on('init', (data) => {
       console.log('Received initial data:', data);
       this.currentData = data;
-      this.addOutput('Papyrus Lite ready. Type /help for available commands.', 'system');
+      // Only show ready message on first connection
+      if (!this.hasInitialized) {
+        this.addOutput('Ready. Type /help for commands.', 'system');
+        this.hasInitialized = true;
+      }
     });
 
     this.socket.on('commandResult', (result) => {
@@ -143,11 +151,24 @@ class PapyrusLiteApp {
     switch (e.key) {
       case 'Enter':
         e.preventDefault();
-        if (!dropdown.classList.contains('hidden') && this.autocompleteIndex >= 0) {
-          const selectedItem = items[this.autocompleteIndex];
-          if (selectedItem) {
-            this.elements.commandInput.value = selectedItem.dataset.command;
+        if (!dropdown.classList.contains('hidden')) {
+          if (this.autocompleteIndex >= 0) {
+            // User has selected a specific item with arrow keys
+            const selectedItem = items[this.autocompleteIndex];
+            if (selectedItem) {
+              this.elements.commandInput.value = selectedItem.dataset.command;
+              this.hideAutocomplete();
+              this.executeCommand();
+            }
+          } else if (items.length > 0) {
+            // No specific selection, auto-complete with first match
+            const firstItem = items[0];
+            this.elements.commandInput.value = firstItem.dataset.command;
             this.hideAutocomplete();
+            this.executeCommand();
+          } else {
+            // No autocomplete suggestions, execute as-is
+            this.executeCommand();
           }
         } else {
           this.executeCommand();
@@ -247,7 +268,9 @@ class PapyrusLiteApp {
       item.appendChild(nameSpan);
       item.appendChild(descSpan);
       
-      item.addEventListener('click', () => {
+      item.addEventListener('mousedown', (e) => {
+        // Use mousedown instead of click to fire before blur
+        e.preventDefault();
         this.elements.commandInput.value = cmd.name;
         this.hideAutocomplete();
         this.executeCommand();
@@ -256,8 +279,34 @@ class PapyrusLiteApp {
       dropdown.appendChild(item);
     });
 
+    // Determine optimal positioning
+    this.positionDropdown(dropdown);
+    
     dropdown.classList.remove('hidden');
     this.autocompleteIndex = -1;
+  }
+
+  positionDropdown(dropdown) {
+    const inputContainer = document.getElementById('input-container');
+    const inputRect = inputContainer.getBoundingClientRect();
+    const viewportHeight = window.innerHeight;
+    const dropdownMaxHeight = 200; // matches CSS max-height
+    
+    // Calculate space above and below
+    const spaceAbove = inputRect.top;
+    const spaceBelow = viewportHeight - inputRect.bottom;
+    
+    // Remove existing positioning classes
+    dropdown.classList.remove('dropdown-above', 'dropdown-below');
+    
+    // Position based on available space
+    if (spaceBelow >= dropdownMaxHeight || spaceBelow >= spaceAbove) {
+      // Show below if there's enough space below, or if there's more space below than above
+      dropdown.classList.add('dropdown-below');
+    } else {
+      // Show above if there's more space above
+      dropdown.classList.add('dropdown-above');
+    }
   }
 
   hideAutocomplete() {
@@ -287,7 +336,7 @@ class PapyrusLiteApp {
     const input = this.elements.commandInput.value.trim();
     if (!input) return;
 
-    this.addOutput(`papyrus-lite> ${input}`, 'command');
+    this.addOutput(`> ${input}`, 'command');
     this.commandHistory.unshift(input);
     this.historyIndex = -1;
     this.elements.commandInput.value = '';
@@ -319,7 +368,6 @@ class PapyrusLiteApp {
     switch (result.type) {
       case 'restart':
         this.elements.output.innerHTML = '';
-        this.addOutput('CLI restarted', 'system');
         break;
 
       case 'ui':
@@ -327,7 +375,9 @@ class PapyrusLiteApp {
         break;
 
       default:
-        this.addOutput(result.message || 'Command executed', 'result');
+        if (result.message && result.message !== 'Command executed') {
+          this.addOutput(result.message, 'result');
+        }
     }
   }
 
@@ -477,12 +527,12 @@ class PapyrusLiteApp {
     const html = `
       <div class="preview-container">
         <div class="preview-header">
-          <span class="preview-title">${data.isPrompt ? 'Prompt Content' : 'Raw Content'}</span>
+          <span class="preview-title">${data.isPrompt ? 'Prompt Content' : 'Rendered Content'}</span>
           <div class="preview-toggle">
-            <button class="btn btn-small" id="render-toggle" onclick="app.toggleRender()">Render</button>
+            <button class="btn btn-small" id="render-toggle" onclick="app.toggleRender()">Raw</button>
           </div>
         </div>
-        <div class="preview-content" id="preview-content">${this.escapeHtml(data.content)}</div>
+        <div class="preview-content preview-rendered" id="preview-content"></div>
       </div>
       <div class="btn-group btn-group-center mt-2">
         <button class="btn btn-secondary" onclick="app.copyContent()">Copy</button>
@@ -493,8 +543,12 @@ class PapyrusLiteApp {
     
     this.elements.modalBody.innerHTML = html;
     this.currentPreviewContent = data.content;
-    this.isRendered = false;
+    this.isRendered = true;
     this.showModal();
+    
+    // Automatically render the content on load
+    this.showLoading();
+    this.socket.emit('processLinks', { content: data.content });
   }
 
   // Prompt management methods
@@ -676,7 +730,7 @@ class PapyrusLiteApp {
       // Process links and render
       this.showLoading();
       this.socket.emit('processLinks', { content: this.currentPreviewContent });
-      button.textContent = 'Reverse';
+      button.textContent = 'Raw';
     }
   }
 
@@ -849,6 +903,11 @@ Prompt Usage:
 - Links can reference substitutes or file paths
 - File links are relative to the root folder path
 
+Link Syntax:
+{{filename.md}} - Include single file
+{{folder/*}} - Include all files from folder (sorted alphabetically)
+{{substitute-name}} - Include substitute content
+
 Supported file types: .md, .txt
 
 Keyboard Shortcuts:
@@ -859,6 +918,7 @@ Keyboard Shortcuts:
 
 Features:
 - Recursive link substitution
+- Folder wildcard inclusion with /*
 - AI chat with conversation history
 - Export content to .md files
 - Copy content to clipboard

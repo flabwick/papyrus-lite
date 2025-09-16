@@ -55,8 +55,9 @@ body {
 }
 
 .output-line {
-  margin-bottom: 8px;
-  padding: 4px 0;
+  margin-bottom: 2px;
+  padding: 1px 0;
+  line-height: 1.2;
 }
 
 .output-command {
@@ -108,16 +109,25 @@ body {
 /* Autocomplete */
 #autocomplete-dropdown {
   position: absolute;
-  top: 100%;
   left: 0;
   right: 0;
   background-color: var(--bg-tertiary);
   border: 1px solid var(--border);
-  border-top: none;
-  border-radius: 0 0 6px 6px;
   max-height: 200px;
   overflow-y: auto;
   z-index: 1000;
+}
+
+#autocomplete-dropdown.dropdown-above {
+  bottom: 100%;
+  border-bottom: none;
+  border-radius: 6px 6px 0 0;
+}
+
+#autocomplete-dropdown.dropdown-below {
+  top: 100%;
+  border-top: none;
+  border-radius: 0 0 6px 6px;
 }
 
 .autocomplete-item {

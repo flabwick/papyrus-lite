@@ -4,21 +4,23 @@ class PapyrusLiteApp {
     const isProduction = window.location.hostname !== 'localhost';
     
     this.socket = io({
-      timeout: 20000, // Reduced from 45s to 20s for faster failure detection
+      timeout: 15000, // Further reduced for faster failure detection
       reconnection: true,
-      reconnectionDelay: 1000, // Start with 1s delay
-      reconnectionDelayMax: 5000, // Max 5s between attempts
-      reconnectionAttempts: 15, // More attempts with shorter delays
-      randomizationFactor: 0.5,
+      reconnectionDelay: 2000, // Start with 2s delay for 502 errors
+      reconnectionDelayMax: 30000, // Longer max delay for server issues
+      reconnectionAttempts: 25, // More attempts for server recovery
+      randomizationFactor: 0.3, // Less randomization for more predictable timing
       transports: isProduction ? ['polling'] : ['websocket', 'polling'],
       upgrade: false, // Disable upgrade in production
       rememberUpgrade: false,
       forceNew: false,
       // Additional production-specific settings
-      pingTimeout: 60000, // 60s ping timeout
-      pingInterval: 25000, // 25s ping interval
+      pingTimeout: 45000, // Reduced ping timeout
+      pingInterval: 20000, // More frequent pings
       autoConnect: true,
-      forceBase64: false
+      forceBase64: false,
+      // Additional resilience settings
+      closeOnBeforeunload: false
     });
     this.currentModal = null;
     this.commandHistory = [];
@@ -29,6 +31,9 @@ class PapyrusLiteApp {
     this.aiTimeout = null;
     this.linkTimeout = null;
     this.connectionRetryTimeout = null;
+    this.reconnectAttempts = 0;
+    this.maxReconnectAttempts = 25;
+    this.lastConnectionTime = Date.now();
     
     this.initializeElements();
     this.setupEventListeners();
@@ -96,6 +101,9 @@ class PapyrusLiteApp {
   setupSocketListeners() {
     this.socket.on('connect', () => {
       console.log('Connected to server');
+      // Reset reconnection tracking on successful connection
+      this.reconnectAttempts = 0;
+      this.lastConnectionTime = Date.now();
       // Clear any error messages on successful connection
       this.hideError();
     });
@@ -108,6 +116,12 @@ class PapyrusLiteApp {
 
     this.socket.on('reconnect_attempt', (attemptNumber) => {
       console.log('Reconnection attempt', attemptNumber);
+      this.reconnectAttempts = attemptNumber;
+      
+      // Show progress for longer reconnection attempts
+      if (attemptNumber > 3) {
+        this.showError(`Reconnecting... (attempt ${attemptNumber}/${this.maxReconnectAttempts})`);
+      }
     });
 
     this.socket.on('reconnect_error', (error) => {
@@ -118,7 +132,25 @@ class PapyrusLiteApp {
       console.error('Failed to reconnect after all attempts');
       this.clearAllTimeouts();
       this.hideLoading();
-      this.showError('Unable to reconnect to server after multiple attempts. Please refresh the page or check your connection.');
+      
+      // Provide more helpful guidance for persistent failures
+      const timeSinceLastConnection = Date.now() - this.lastConnectionTime;
+      let failureMessage = 'Unable to reconnect to server after multiple attempts.';
+      
+      if (timeSinceLastConnection > 300000) { // 5 minutes
+        failureMessage += ' The server may be down for maintenance. Please try again later.';
+      } else {
+        failureMessage += ' Please refresh the page or check your connection.';
+      }
+      
+      this.showError(failureMessage);
+      
+      // Offer manual retry option after failure
+      setTimeout(() => {
+        if (!this.socket.connected) {
+          this.showRetryOption();
+        }
+      }, 5000);
     });
 
     this.socket.on('disconnect', (reason) => {
@@ -168,7 +200,12 @@ class PapyrusLiteApp {
       } else if (error.message && error.message.includes('timeout')) {
         errorMessage = 'Connection timeout. Retrying...';
       } else if (error.message && error.message.includes('502')) {
-        errorMessage = 'Server temporarily unavailable. Retrying...';
+        const timeSinceLastConnection = Date.now() - this.lastConnectionTime;
+        if (timeSinceLastConnection < 30000) {
+          errorMessage = 'Server restarting. Retrying...';
+        } else {
+          errorMessage = `Server temporarily unavailable. Retrying... (${this.reconnectAttempts}/${this.maxReconnectAttempts})`;
+        }
       }
       
       this.showError(errorMessage);
@@ -1115,6 +1152,27 @@ Features:
     if (this.connectionRetryTimeout) {
       clearTimeout(this.connectionRetryTimeout);
       this.connectionRetryTimeout = null;
+    }
+  }
+
+  showRetryOption() {
+    if (this.socket.connected) return; // Don't show if already connected
+    
+    const retryButton = document.createElement('button');
+    retryButton.className = 'btn btn-primary';
+    retryButton.textContent = 'Retry Connection';
+    retryButton.style.margin = '10px';
+    
+    retryButton.onclick = () => {
+      this.hideError();
+      this.socket.connect();
+      retryButton.remove();
+    };
+    
+    // Add retry button to error toast if it exists
+    const errorToast = this.elements.errorToast;
+    if (errorToast && !errorToast.classList.contains('hidden')) {
+      errorToast.appendChild(retryButton);
     }
   }
 

@@ -69,6 +69,7 @@ io.engine.on('connection', (socket) => {
   
   socket.transport.on('error', (error) => {
     logger.error(`Transport error for ${socket.id}:`, error);
+    // Don't disconnect socket on transport error - let Socket.IO handle it
   });
   
   socket.transport.on('packet', (packet) => {
@@ -77,6 +78,10 @@ io.engine.on('connection', (socket) => {
   
   socket.transport.on('drain', () => {
     logger.debug(`Transport drained for ${socket.id}`);
+  });
+  
+  socket.transport.on('close', () => {
+    logger.info(`Transport closed for ${socket.id}`);
   });
 });
 
@@ -375,10 +380,12 @@ fileWatcher.on('fileChanged', (filePath) => {
 // Error handling
 process.on('uncaughtException', (error) => {
   logger.error('Uncaught Exception:', error);
+  process.exit(1);
 });
 
 process.on('unhandledRejection', (reason, promise) => {
   logger.error('Unhandled Rejection at:', promise, 'reason:', reason);
+  process.exit(1);
 });
 
 // Start server

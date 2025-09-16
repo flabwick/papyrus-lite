@@ -35,6 +35,51 @@ const io = socketIo(server, {
   destroyUpgradeTimeout: 1000
 });
 
+// Add engine-level debugging
+io.engine.on('connection_error', (err) => {
+  logger.error('Engine connection error:', err);
+});
+
+io.engine.on('initial_headers', (headers, req) => {
+  logger.debug('Engine initial headers:', { headers, url: req.url });
+});
+
+io.engine.on('headers', (headers, req) => {
+  logger.debug('Engine headers:', { headers, url: req.url });
+});
+
+io.engine.on('connection', (socket) => {
+  logger.info(`Engine connection: ${socket.id}, transport: ${socket.transport.name}`);
+  
+  socket.on('packet', (packet) => {
+    logger.debug(`Engine packet from ${socket.id}:`, packet);
+  });
+  
+  socket.on('packetCreate', (packet) => {
+    logger.debug(`Engine packet create for ${socket.id}:`, packet);
+  });
+  
+  socket.on('close', (reason) => {
+    logger.info(`Engine socket ${socket.id} closed: ${reason}`);
+  });
+  
+  socket.on('error', (error) => {
+    logger.error(`Engine socket ${socket.id} error:`, error);
+  });
+  
+  socket.transport.on('error', (error) => {
+    logger.error(`Transport error for ${socket.id}:`, error);
+  });
+  
+  socket.transport.on('packet', (packet) => {
+    logger.debug(`Transport packet for ${socket.id}:`, packet);
+  });
+  
+  socket.transport.on('drain', () => {
+    logger.debug(`Transport drained for ${socket.id}`);
+  });
+});
+
 const PORT = process.env.PORT || 4201;
 const logger = new Logger();
 

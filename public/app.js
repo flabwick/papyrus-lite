@@ -2,8 +2,9 @@ class PapyrusLiteApp {
   constructor() {
     // Detect if we're in production and force polling transport
     const isProduction = window.location.hostname !== 'localhost';
+    const socketUrl = window.location.hostname === 'localhost' ? 'http://localhost:4201' : 'https://dev.jimboslice.xyz';
     
-    this.socket = io({
+    this.socket = io(socketUrl, {
       timeout: 15000, // Further reduced for faster failure detection
       reconnection: true,
       reconnectionDelay: 2000, // Start with 2s delay for 502 errors

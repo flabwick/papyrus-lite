@@ -70,6 +70,18 @@ io.engine.on('connection', (socket) => {
   socket.transport.on('error', (error) => {
     logger.error(`Transport error for ${socket.id}:`, error);
     // Don't disconnect socket on transport error - let Socket.IO handle it
+    // Wrap in try-catch to prevent uncaught exceptions
+    try {
+      // Log additional error details
+      if (error && error.message) {
+        logger.error(`Transport error message: ${error.message}`);
+      }
+      if (error && error.stack) {
+        logger.error(`Transport error stack: ${error.stack}`);
+      }
+    } catch (e) {
+      logger.error('Error handling transport error:', e);
+    }
   });
   
   socket.transport.on('packet', (packet) => {

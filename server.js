@@ -392,12 +392,20 @@ fileWatcher.on('fileChanged', (filePath) => {
 // Error handling
 process.on('uncaughtException', (error) => {
   logger.error('Uncaught Exception:', error);
-  process.exit(1);
+  logger.error('Stack trace:', error.stack);
+  logger.error('Error type:', typeof error);
+  logger.error('Error constructor:', error.constructor?.name);
+  logger.error('Error keys:', Object.keys(error));
+  
+  // Log the full call stack to identify where this is coming from
+  const stack = new Error().stack;
+  logger.error('Call stack at exception:', stack);
 });
 
 process.on('unhandledRejection', (reason, promise) => {
   logger.error('Unhandled Rejection at:', promise, 'reason:', reason);
-  process.exit(1);
+  logger.error('Reason type:', typeof reason);
+  logger.error('Reason constructor:', reason?.constructor?.name);
 });
 
 // Start server

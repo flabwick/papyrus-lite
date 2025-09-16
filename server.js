@@ -25,7 +25,7 @@ const io = socketIo(server, {
   pingInterval: 25000,
   upgradeTimeout: 30000,
   allowUpgrades: true,
-  transports: ['websocket', 'polling'],
+  transports: ['polling', 'websocket'],
   maxHttpBufferSize: 1e8,
   connectTimeout: 45000,
   allowEIO3: true,

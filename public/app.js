@@ -1,5 +1,8 @@
 class PapyrusLiteApp {
   constructor() {
+    // Detect if we're in production and force polling transport
+    const isProduction = window.location.hostname !== 'localhost';
+    
     this.socket = io({
       timeout: 45000,
       reconnection: true,
@@ -7,8 +10,8 @@ class PapyrusLiteApp {
       reconnectionDelayMax: 10000,
       reconnectionAttempts: 10,
       randomizationFactor: 0.5,
-      transports: ['websocket', 'polling'],
-      upgrade: true,
+      transports: isProduction ? ['polling'] : ['websocket', 'polling'],
+      upgrade: false, // Disable upgrade in production
       rememberUpgrade: false,
       forceNew: false
     });

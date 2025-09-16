@@ -4,16 +4,21 @@ class PapyrusLiteApp {
     const isProduction = window.location.hostname !== 'localhost';
     
     this.socket = io({
-      timeout: 45000,
+      timeout: 20000, // Reduced from 45s to 20s for faster failure detection
       reconnection: true,
-      reconnectionDelay: 2000,
-      reconnectionDelayMax: 10000,
-      reconnectionAttempts: 10,
+      reconnectionDelay: 1000, // Start with 1s delay
+      reconnectionDelayMax: 5000, // Max 5s between attempts
+      reconnectionAttempts: 15, // More attempts with shorter delays
       randomizationFactor: 0.5,
       transports: isProduction ? ['polling'] : ['websocket', 'polling'],
       upgrade: false, // Disable upgrade in production
       rememberUpgrade: false,
-      forceNew: false
+      forceNew: false,
+      // Additional production-specific settings
+      pingTimeout: 60000, // 60s ping timeout
+      pingInterval: 25000, // 25s ping interval
+      autoConnect: true,
+      forceBase64: false
     });
     this.currentModal = null;
     this.commandHistory = [];
@@ -23,6 +28,7 @@ class PapyrusLiteApp {
     this.hasInitialized = false;
     this.aiTimeout = null;
     this.linkTimeout = null;
+    this.connectionRetryTimeout = null;
     
     this.initializeElements();
     this.setupEventListeners();
@@ -109,26 +115,29 @@ class PapyrusLiteApp {
     });
 
     this.socket.on('reconnect_failed', () => {
-      console.error('Failed to reconnect');
-      this.showError('Unable to reconnect to server. Please refresh the page.');
+      console.error('Failed to reconnect after all attempts');
+      this.clearAllTimeouts();
+      this.hideLoading();
+      this.showError('Unable to reconnect to server after multiple attempts. Please refresh the page or check your connection.');
     });
 
     this.socket.on('disconnect', (reason) => {
       console.log('Disconnected from server, reason:', reason);
       // Clear any pending timeouts and hide loading
-      if (this.aiTimeout) {
-        clearTimeout(this.aiTimeout);
-        this.aiTimeout = null;
-      }
-      if (this.linkTimeout) {
-        clearTimeout(this.linkTimeout);
-        this.linkTimeout = null;
-      }
+      this.clearAllTimeouts();
       this.hideLoading();
       
       // Only show error for unexpected disconnections
       if (reason !== 'io client disconnect' && reason !== 'io server disconnect') {
-        this.showError(`Connection lost (${reason}). Attempting to reconnect...`);
+        let disconnectMessage = 'Connection lost. Attempting to reconnect...';
+        if (reason === 'ping timeout') {
+          disconnectMessage = 'Connection timed out. Reconnecting...';
+        } else if (reason === 'transport error') {
+          disconnectMessage = 'Network error. Reconnecting...';
+        } else if (reason === 'transport close') {
+          disconnectMessage = 'Connection closed. Reconnecting...';
+        }
+        this.showError(disconnectMessage);
       }
     });
 
@@ -149,22 +158,32 @@ class PapyrusLiteApp {
     this.socket.on('connect_error', (error) => {
       console.error('Connection error:', error);
       // Clear any pending timeouts and hide loading
-      if (this.aiTimeout) {
-        clearTimeout(this.aiTimeout);
-        this.aiTimeout = null;
-      }
-      if (this.linkTimeout) {
-        clearTimeout(this.linkTimeout);
-        this.linkTimeout = null;
-      }
+      this.clearAllTimeouts();
       this.hideLoading();
-      this.showError('Failed to connect to server. Please try again.');
+      
+      // More specific error messages based on error type
+      let errorMessage = 'Failed to connect to server.';
+      if (error.message && error.message.includes('xhr poll error')) {
+        errorMessage = 'Network connection failed. Retrying...';
+      } else if (error.message && error.message.includes('timeout')) {
+        errorMessage = 'Connection timeout. Retrying...';
+      } else if (error.message && error.message.includes('502')) {
+        errorMessage = 'Server temporarily unavailable. Retrying...';
+      }
+      
+      this.showError(errorMessage);
     });
 
     this.socket.on('error', (error) => {
       console.error('Socket error:', error);
-      this.showError(error.message);
+      this.clearAllTimeouts();
       this.hideLoading();
+      
+      let errorMessage = 'Socket error occurred.';
+      if (error && error.message) {
+        errorMessage = `Socket error: ${error.message}`;
+      }
+      this.showError(errorMessage);
     });
 
     this.socket.on('promptsUpdated', (prompts) => {
@@ -1082,6 +1101,21 @@ Features:
 
   hideSuccess() {
     this.elements.successToast.classList.add('hidden');
+  }
+
+  clearAllTimeouts() {
+    if (this.aiTimeout) {
+      clearTimeout(this.aiTimeout);
+      this.aiTimeout = null;
+    }
+    if (this.linkTimeout) {
+      clearTimeout(this.linkTimeout);
+      this.linkTimeout = null;
+    }
+    if (this.connectionRetryTimeout) {
+      clearTimeout(this.connectionRetryTimeout);
+      this.connectionRetryTimeout = null;
+    }
   }
 
   escapeHtml(text) {

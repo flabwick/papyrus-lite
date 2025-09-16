@@ -18,15 +18,19 @@ const server = http.createServer(app);
 const io = socketIo(server, {
   cors: {
     origin: "*",
-    methods: ["GET", "POST"]
+    methods: ["GET", "POST"],
+    credentials: true
   },
-  pingTimeout: 120000,
-  pingInterval: 30000,
-  upgradeTimeout: 60000,
+  pingTimeout: 60000,
+  pingInterval: 25000,
+  upgradeTimeout: 30000,
   allowUpgrades: true,
   transports: ['websocket', 'polling'],
   maxHttpBufferSize: 1e8,
-  connectTimeout: 60000
+  connectTimeout: 45000,
+  allowEIO3: true,
+  serveClient: false,
+  cookie: false
 });
 
 const PORT = process.env.PORT || 4201;
@@ -37,6 +41,17 @@ app.use(cors());
 app.use(express.json());
 app.use(express.static(path.join(__dirname, 'public')));
 
+// Health check endpoint
+app.get('/health', (req, res) => {
+  res.json({
+    status: 'ok',
+    timestamp: new Date().toISOString(),
+    uptime: process.uptime(),
+    memory: process.memoryUsage(),
+    socketConnections: io.engine.clientsCount
+  });
+});
+
 // Initialize services
 const dataManager = new DataManager(logger);
 const linkProcessor = new LinkProcessor(dataManager, logger);
@@ -45,17 +60,24 @@ const fileWatcher = new FileWatcher(dataManager, logger);
 
 // Socket.io connection handling
 io.on('connection', (socket) => {
-  logger.info(`Client connected: ${socket.id}`);
+  logger.info(`Client connected: ${socket.id} from ${socket.handshake.address}`);
 
-  // Initialize client with current data
-  socket.emit('init', {
-    prompts: dataManager.getPrompts(),
-    substitutes: dataManager.getSubstitutes(),
-    systemInstructions: dataManager.getSystemInstructions(),
-    aiModel: dataManager.getAIModel(),
-    rootPath: dataManager.getRootPath(),
-    history: dataManager.getHistory()
-  });
+  // Set socket timeout and keepalive
+  socket.timeout(60000);
+  
+  // Initialize client with current data - wrap in try/catch
+  try {
+    socket.emit('init', {
+      prompts: dataManager.getPrompts(),
+      substitutes: dataManager.getSubstitutes(),
+      systemInstructions: dataManager.getSystemInstructions(),
+      aiModel: dataManager.getAIModel(),
+      rootPath: dataManager.getRootPath(),
+      history: dataManager.getHistory()
+    });
+  } catch (error) {
+    logger.error(`Error sending init data to ${socket.id}:`, error);
+  }
 
   // Add connection debugging
   socket.on('disconnect', (reason) => {
@@ -68,6 +90,16 @@ io.on('connection', (socket) => {
 
   socket.on('error', (error) => {
     logger.error(`Socket error for ${socket.id}:`, error);
+  });
+
+  // Add ping/pong handling
+  socket.on('ping', () => {
+    socket.emit('pong');
+  });
+
+  // Handle disconnecting event
+  socket.on('disconnecting', (reason) => {
+    logger.info(`Client disconnecting: ${socket.id}, reason: ${reason}`);
   });
 
   // Command handlers

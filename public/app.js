@@ -1,12 +1,16 @@
 class PapyrusLiteApp {
   constructor() {
     this.socket = io({
-      timeout: 60000,
+      timeout: 45000,
       reconnection: true,
-      reconnectionDelay: 1000,
-      reconnectionAttempts: 5,
-      maxReconnectionAttempts: 5,
-      transports: ['websocket', 'polling']
+      reconnectionDelay: 2000,
+      reconnectionDelayMax: 10000,
+      reconnectionAttempts: 10,
+      randomizationFactor: 0.5,
+      transports: ['websocket', 'polling'],
+      upgrade: true,
+      rememberUpgrade: false,
+      forceNew: false
     });
     this.currentModal = null;
     this.commandHistory = [];
@@ -83,11 +87,31 @@ class PapyrusLiteApp {
   setupSocketListeners() {
     this.socket.on('connect', () => {
       console.log('Connected to server');
-      // Remove connection message from terminal
+      // Clear any error messages on successful connection
+      this.hideError();
     });
 
-    this.socket.on('disconnect', () => {
-      console.log('Disconnected from server');
+    this.socket.on('reconnect', (attemptNumber) => {
+      console.log('Reconnected to server after', attemptNumber, 'attempts');
+      this.hideError();
+      this.addOutput('Reconnected to server.', 'system');
+    });
+
+    this.socket.on('reconnect_attempt', (attemptNumber) => {
+      console.log('Reconnection attempt', attemptNumber);
+    });
+
+    this.socket.on('reconnect_error', (error) => {
+      console.error('Reconnection failed:', error);
+    });
+
+    this.socket.on('reconnect_failed', () => {
+      console.error('Failed to reconnect');
+      this.showError('Unable to reconnect to server. Please refresh the page.');
+    });
+
+    this.socket.on('disconnect', (reason) => {
+      console.log('Disconnected from server, reason:', reason);
       // Clear any pending timeouts and hide loading
       if (this.aiTimeout) {
         clearTimeout(this.aiTimeout);
@@ -98,7 +122,11 @@ class PapyrusLiteApp {
         this.linkTimeout = null;
       }
       this.hideLoading();
-      this.showError('Connection lost. Please refresh the page.');
+      
+      // Only show error for unexpected disconnections
+      if (reason !== 'io client disconnect' && reason !== 'io server disconnect') {
+        this.showError(`Connection lost (${reason}). Attempting to reconnect...`);
+      }
     });
 
     this.socket.on('init', (data) => {
